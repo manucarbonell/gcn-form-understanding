@@ -94,11 +94,10 @@ def adjacency_to_pairs_and_labels(am):
     labels=[]
     for i in range(am.shape[0]):
         for j in range(am.shape[1]):
-            if i!=j:
-                pairs.append(np.array([i,j]))
-                labels.append(am[i,j])
+            pairs.append((i,j))
+            labels.append(am[i,j])
 
-    return pairs,np.array(labels)
+    return pairs,labels
 
 
 def pxml2graph(file):
@@ -151,13 +150,15 @@ def pxml2graph(file):
     nx.set_node_attributes(target_G, node_label, 'position')
     node_label = torch.stack([torch.tensor(v['position']) for k,v in G.nodes.items()])
     pairs,labels= adjacency_to_pairs_and_labels(target_am)
+    label_dict={}
+    for k in range(len(pairs)):
+        label_dict[pairs[k]]=labels[k]
     #target_G = dgl.transform.knn_graph(node_label,10)
     #target_G.ndata['position'] = node_label
     
-    #edge_attr = adjacency_to_edge_attr(target_am)
     #target_G.edata['groups'] = edge_attr
     #nx.set_edge_attributes(target_G, edge_attr,'groups')
-    return G,labels
+    return G,label_dict
 
 
 
@@ -250,7 +251,7 @@ class Pages(data.Dataset):
     g.from_networkx(G, node_attrs=['position'])'''
     node_label = torch.stack([torch.tensor(v['position']) for k,v in G.nodes.items()])
 
-    g_in = dgl.transform.knn_graph(node_label,10)
+    g_in = dgl.transform.knn_graph(node_label,20)
     #g_in = dgl.transform.knn_graph(G.ndata['position'], 40)
     
     g_in.ndata['position'] =node_label.float()
@@ -329,11 +330,11 @@ class Net(nn.Module):
         pairs = torch.t(torch.stack([g.edges()[0],g.edges()[1]]))
         return g,pairs
 
-    def calc_score(self,h):
-        _,pairs = self.get_complete_graph_and_pairs(h.shape[0])
+    def calc_score(self,g):
+        pairs = torch.t(torch.stack([g.edges()[0],g.edges()[1]]))
         # get hidden state of all source destination pairs and calculate their edge score
-        s = h[pairs[:,0]]
-        d = h[pairs[:,1]]
+        s = g.ndata['h'][pairs[:,0]]
+        d = g.ndata['h'][pairs[:,1]]
         
         score = self.score(s,d)
         return score
@@ -351,7 +352,7 @@ class Net(nn.Module):
         h = self.conv2(g, h)
         
         g.ndata['h'] = h
-        score = self.calc_score(h)
+        score = self.calc_score(g)
         #hg = dgl.mean_nodes(g, 'h')
         #return self.classify(hg)
         return score
@@ -389,7 +390,6 @@ def train(model):
             ''' 
             ##### VISUALIZE X Y ###########################3
             # X
-            pdb.set_trace()
             G = bg.to_networkx(node_attrs=['position'])
             position = {k: v.numpy() for k, v in dict(G.nodes(data='position')).items()}
             nx.draw(G, pos=position, arrows=False)
@@ -405,28 +405,21 @@ def train(model):
             '''
             optimizer.zero_grad()
             prediction = model(bg)
-            target = torch.tensor(blab[0])
-            target[target==0]=-1
-            '''positives_idx = torch.where(target == 1)[0]
-            negatives_idx = torch.where(target == 0)[0]
-            target[negatives_idx]=-1.
-            pos_sample = random_choice(positives_idx)
-            neg_sample = random_choice(negatives_idx)
-            pred_sample = torch.cat([prediction[pos_sample],prediction[neg_sample]])
+            target_edges = blab[0]
+            input_edges = torch.t(torch.stack([bg.edges()[0],bg.edges()[1]])).tolist()
             
-            target_sample = torch.cat([target[pos_sample],target[neg_sample]])'''
-            #loss = loss_func(prediction, target)
-            class_weights = target.clone()
-            class_weights[class_weights==1]=0.1
-            class_weights[class_weights==-1]=0.9
-            loss =  F.binary_cross_entropy_with_logits(prediction,target.float(),weight=class_weights.float())
+            edges = [tuple(input_edges[k]) for k in range(len(input_edges))]
+            target = torch.tensor([target_edges[edges[k]] for k in range(len(edges))])
+            
+            
+            loss =  F.binary_cross_entropy_with_logits(prediction,target)
             #loss = F.binary_cross_entropy_with_logits(prediction,target)#,weight=class_weights)
 
-            #print('epoch '+str(epoch)+' '+ str(float(iter/len(train_loader))) +' loss '+str(float(loss)))
+            print('epoch '+str(epoch)+' '+ str(float(iter/len(train_loader))) +' loss '+str(float(loss)))
         
             loss.backward()
             optimizer.step()
-            prediction[prediction<0.8] = -1
+            prediction[prediction<0.8] = 0
             prediction[prediction>0.8] = 1
             if epoch % 30 == 0: pdb.set_trace()
             print("ACC:",float((prediction == target).sum())/prediction.shape[0])
