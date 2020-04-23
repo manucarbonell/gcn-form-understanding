@@ -35,6 +35,7 @@ testset = FUNSD('funsd_test','')
 test_loader = DataLoader(testset, batch_size=1, collate_fn=collate)
 model = torch.load('model.pt')
 accuracies = []
+precisions =[]
 print ("Validation on test set")
 
 for iter,(bg,blab) in enumerate(test_loader):
@@ -51,7 +52,11 @@ for iter,(bg,blab) in enumerate(test_loader):
     target = torch.tensor([target_edges[e] for e in edges])
 
     acc = float(((prediction == target)[target.bool()].float().sum()/target.sum()).item())
-    accuracies.append(acc)
+    prec = float(((prediction == target)[target.bool()].float().sum()/prediction.sum()).item())
 
+    accuracies.append(acc)
+    precisions.append(prec)
+epoch_prec = np.mean(precisions)
 epoch_acc = np.mean(accuracies)
+print('TOTAL PREC',epoch_prec)
 print('TOTAL ACC',epoch_acc)
