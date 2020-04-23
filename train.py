@@ -206,28 +206,10 @@ def train(model):
 """# Main"""
 
 #def main():
-model_path = 'model.pt'
-if os.path.exists(model_path):
-    model = torch.load(model_path)
-else:
-    
-    model = Net(2, 128)
+model = Net(2, 128)
 
-    model = train(model)
-    torch.save(model,'model.pt')
+model = train(model)
 
 
 #if __name__ == "__main__":
 #    main()
-
-def visualize_graph(g):
-    position = np.array(g.ndata['position'])
-    g = g.to_networkx()
-    nx.draw(g, pos=position, arrows=False)
-    plt.show()
-
-def edges_list_to_dgl(edges):
-    g = dgl.DGLGraph()
-    g.add_edges(edges[:,0],edges[:,1])
-    return g
-
