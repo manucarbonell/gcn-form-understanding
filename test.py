@@ -29,7 +29,7 @@ from torch.optim.lr_scheduler import StepLR
 from torch.utils.data import DataLoader
 
 from model import Net
-from datasets import FUNSD,collate,pxml2graph
+from datasets import FUNSD,collate
 
 testset = FUNSD('funsd_test','')
 test_loader = DataLoader(testset, batch_size=1, collate_fn=collate)
