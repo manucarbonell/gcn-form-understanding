@@ -65,8 +65,8 @@ class Net(nn.Module):
     def forward(self, g):
         # For undirected graphs, in_degree is the same as
         # out_degree.
-        h = g.ndata['position']
-
+        #h = g.ndata['position']
+        h = torch.cat([g.ndata['position'],g.ndata['w_embed']],dim=1)
         if torch.cuda.is_available():
           h = h.cuda() 
         #h = F.relu(self.conv1(g, h))
