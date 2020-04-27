@@ -40,7 +40,7 @@ from torch.optim.lr_scheduler import StepLR
 from torch.utils.data import DataLoader
 
 from model import Net
-from datasets import FUNSD,collate,pxml2graph
+from datasets import FUNSD,collate
 
 
 
@@ -206,7 +206,7 @@ def train(model):
 """# Main"""
 
 #def main():
-model = Net(2, 128)
+model = Net(102, 128)
 
 model = train(model)
 
