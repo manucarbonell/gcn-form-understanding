@@ -30,7 +30,7 @@ from torch.utils.data import DataLoader
 from utils import visualize_graph,edges_list_to_dgl_graph
 import utils
 from model import Net
-from datasets import FUNSD,collate,pxml2graph
+from datasets import FUNSD,collate
 
 testset = FUNSD('funsd_test','')
 test_loader = DataLoader(testset, batch_size=1, collate_fn=collate)
@@ -72,7 +72,7 @@ for iter,(bg,blab) in enumerate(test_loader):
     fng = edges_list_to_dgl_graph(fn_edges,bg.number_of_nodes())
     fng.ndata['position']=bg.ndata['position']
     fn_edges = {k for k in dict(fng.to_networkx().edges()).keys()}
-    nx.draw_networkx_edges(fng.to_networkx(),pos=np.array(fng.ndata['position']),arrows = False,width = 3.0,edgelist = fn_edges,edge_color='b')
+    #nx.draw_networkx_edges(fng.to_networkx(),pos=np.array(fng.ndata['position']),arrows = False,width = 3.0,edgelist = fn_edges,edge_color='b')
     #visualize_graph(fpg,os.path.join(out_dir,page_id+'_fp.png'))
 
 
@@ -80,21 +80,22 @@ for iter,(bg,blab) in enumerate(test_loader):
     pred_edges = torch.t(torch.stack([bg.edges()[0][prediction.bool()],bg.edges()[1][prediction.bool()]]))
     predg = edges_list_to_dgl_graph(pred_edges)
     predg.ndata['position']=bg.ndata['position']
-    visualize_graph(predg,os.path.join(out_dir,page_id+'_pred.png'))
-    plt.clf()
+    #visualize_graph(predg,os.path.join(out_dir,page_id+'_pred.png'))
+    #plt.clf()
     
     # Y
     target_edges = torch.t(torch.stack([bg.edges()[0][target.bool()],bg.edges()[1][target.bool()]]))
     yg = edges_list_to_dgl_graph(target_edges)
     yg.ndata['position']=bg.ndata['position']
     print('GT connected components',nx.number_connected_components(yg.to_networkx().to_undirected()))
-    visualize_graph(yg,os.path.join(out_dir,page_id+'_gt.png'))
-    plt.clf()
-
+    #visualize_graph(yg,os.path.join(out_dir,page_id+'_gt.png'))
+    #plt.clf()
+    pdb.set_trace() 
+    pred_components = nx.connected_components(predg.to_networkx().to_undirected())
+    gt_components = nx.connected_components(yg.to_networkx().to_undirected())
     print('Pred strongly connected components',nx.number_strongly_connected_components(predg.to_networkx()))
-    print('Pred connected components',nx.number_connected_components(predg.to_networkx().to_undirected()))
-    print('Pred strongly connected components recursive',len([c for c in nx.strongly_connected_components_recursive(predg.to_networkx())]))
     
+    print('GT strongly connected components',nx.number_strongly_connected_components(yg.to_networkx()))
     #Spectral clustering on Y'
     '''clusters = utils.spectral_clustering(np.array(predg.adjacency_matrix().to_dense()))
     pdb.set_trace() 
