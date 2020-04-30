@@ -34,15 +34,15 @@ from datasets import FUNSD,collate
 testset = FUNSD('funsd_test','')
 test_loader = DataLoader(testset, batch_size=1, collate_fn=collate)
 model = torch.load('model.pt')
-accuracies = []
+recalls = []
 precisions =[]
 print ("Validation on test set")
 
 for iter,(bg,blab) in enumerate(test_loader):
     print(float(iter)/len(test_loader),'\r\r')
     prediction = model(bg)
-    prediction[prediction>0.5] = 1
-    prediction[prediction<=0.5] = 0
+    prediction[prediction>0.8] = 1
+    prediction[prediction<=0.8] = 0
     
     target_edges = blab[0]
 
@@ -51,12 +51,13 @@ for iter,(bg,blab) in enumerate(test_loader):
     edges = list(map(tuple, input_edges))
     target = torch.tensor([target_edges[e] for e in edges])
 
-    acc = float(((prediction == target)[target.bool()].float().sum()/target.sum()).item())
-    prec = float(((prediction == target)[target.bool()].float().sum()/prediction.sum()).item())
+    rec = float(((prediction == target)[target.bool()].float().sum()/target.sum()).item())
+    prec = float(((prediction == target)[prediction.bool()].float().sum()/prediction.sum()).item())
 
-    accuracies.append(acc)
+    recalls.append(rec)
     precisions.append(prec)
 epoch_prec = np.mean(precisions)
-epoch_acc = np.mean(accuracies)
-print('TOTAL PREC',epoch_prec)
-print('TOTAL ACC',epoch_acc)
+epoch_rec = np.mean(recalls)
+print('Precision, recall:',epoch_prec,epoch_rec)
+
+print('F1',2*(epoch_prec*epoch_rec)/(epoch_prec+epoch_rec))
