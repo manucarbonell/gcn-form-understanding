@@ -48,9 +48,12 @@ class FUNSD(data.Dataset):
         # List of files and corresponding labels
         self.files =glob.glob(root_path+'/*.xml')
                     #os.listdir(root_path)
-                    
-        self.embeddings = fasttext.train_unsupervised('text_data.txt', model='skipgram')
-
+        
+        if not os.path.exists('embeddings.bin'):
+            self.embeddings = fasttext.train_unsupervised('text_data.txt', model='skipgram')
+            self.embeddings.save_model("embeddings.bin")
+        else:
+            self.embeddings =fasttext.load_model("embeddings.bin")
 
     def __getitem__(self, index):
         # Read the graph and label
@@ -127,6 +130,7 @@ class FUNSD(data.Dataset):
 
         target_am=np.zeros((len(node_id),len(node_id)))
         node_words = {}
+        node_shape = {}
         # nodes corresponding words in same groups are connected:
         for page in pages:
             pagenum = pxml.getPageNumber(page)
@@ -140,6 +144,7 @@ class FUNSD(data.Dataset):
                     x0,y0,x1,y1,transcription,tag=get_coords_and_transcript(pxml,Word,'label')
                     node_label[word_idx] = np.array([x0, y0])
                     node_words[word_idx] = self.embeddings[transcription] 
+                    node_shape[word_idx] = np.array([x1-x0,y1-y0])
                     word_idx+=1
                 last_region_word = word_idx
 
@@ -148,6 +153,7 @@ class FUNSD(data.Dataset):
         G = nx.from_numpy_matrix(am)
         nx.set_node_attributes(G, node_label, 'position')
         nx.set_node_attributes(G, node_words, 'w_embed')
+        nx.set_node_attributes(G, node_shape, 'shape')
         
         pairs,labels= adjacency_to_pairs_and_labels(target_am)
         label_dict={}
