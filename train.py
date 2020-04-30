@@ -38,6 +38,7 @@ import torch
 import dgl
 from torch.optim.lr_scheduler import StepLR
 from torch.utils.data import DataLoader
+from utils import *
 
 from model import Net
 from datasets import FUNSD,collate
@@ -123,7 +124,7 @@ def train(model):
         model = model.cuda()
     loss_func = nn.CrossEntropyLoss()
     optimizer = optim.Adam(model.parameters(), lr=0.001)
-    scheduler = StepLR(optimizer, 20, gamma = 0.9)
+    scheduler = StepLR(optimizer, 5, gamma = 0.9)
     model.train()
     
     def random_choice(tensor,k=100):
@@ -134,9 +135,12 @@ def train(model):
 
     epoch_losses = []
     train_log = open('train_log.txt','w')
+    train_log.close()
     epoch_loss = 0
     best_acc =0
-    patience = 10
+    best_components_error = 200
+    patience = 100
+    act_thresh = 0.5
     epochs_no_improvement=0
     for epoch in range(100):
         epoch_loss = 0
@@ -163,23 +167,22 @@ def train(model):
             epoch_loss+=float(loss)
             
             optimizer.step()
-            scheduler.step()
 
-            prediction[prediction>0.5] = 1
-            prediction[prediction<=0.5] = 0
+            prediction[prediction>act_thresh] = 1
+            prediction[prediction<=act_thresh] = 0
 
-            if iter % 20 == 0:
-                print('\t* Epoch '+str(epoch)+' '+ str(float(iter/len(train_loader))) +' loss '+str(float(loss)) + ' lr' + str(scheduler.get_lr()[0]))
-                print("ACCURACY:",float((prediction == target).sum())/prediction.shape[0])
-                print("PRECISION:", ((prediction == target)[target.bool()].float().sum()/prediction.sum()).item())
-                print("RECALL:", ((prediction == target)[target.bool()].float().sum()/target.sum()).item())
-
+        print('\t* Epoch '+str(epoch) +' loss '+str(float(epoch_loss)) + ' lr' + str(scheduler.get_lr()[0]))
+        print("ACCURACY:",float((prediction == target).sum())/prediction.shape[0])
+        print("PRECISION:", ((prediction == target)[target.bool()].float().sum()/prediction.sum()).item())
+        print("RECALL:", ((prediction == target)[target.bool()].float().sum()/target.sum()).item())
         print(" Validation \n")
         accuracies = []
+        scheduler.step()
         for iter,(bg,blab) in enumerate(valid_loader):
-            prediction = model(bg)
-            prediction[prediction>0.5] = 1
-            prediction[prediction<=0.5] = 0
+            activations = model(bg)
+            prediction=activations.clone()
+            prediction[prediction>act_thresh] = 1
+            prediction[prediction<=act_thresh] = 0
             
             target_edges = blab[0]
 
@@ -187,9 +190,35 @@ def train(model):
             input_edges = torch.stack(bg.edges()).t().tolist()            
             edges = list(map(tuple, input_edges))
             target = torch.tensor([target_edges[e] for e in edges])
+            precision= ((prediction == target)[target.bool()].float().sum()/prediction.sum()).item()
+            recall = ((prediction == target)[target.bool()].float().sum()/target.sum()).item()
+            f1 =2*( precision*recall)/(precision+recall)
+            accuracies.append(f1)
 
-            acc = float(((prediction == target)[target.bool()].float().sum()/target.sum()).item())
-            accuracies.append(acc)
+            # calculate predicted graph and target graph connected components
+            n_components_error =200
+
+            for thres in np.linspace(0.1,0.9,20):
+                prediction = activations.clone()
+                prediction[prediction>thres] = 1
+                prediction[prediction<=thres] = 0
+                
+                pred_edges = torch.t(torch.stack([bg.edges()[0][prediction.bool()],bg.edges()[1][prediction.bool()]]))
+                if pred_edges.shape[0]<=0: continue
+                predg = edges_list_to_dgl_graph(pred_edges)
+                pred_components=nx.number_strongly_connected_components(predg.to_networkx())
+                #print('Pred strongly connected components',pred_components)
+                
+                target_edges = torch.t(torch.stack([bg.edges()[0][target.bool()],bg.edges()[1][target.bool()]]))
+                yg = edges_list_to_dgl_graph(target_edges)
+                gt_components=nx.number_strongly_connected_components(yg.to_networkx())
+                #print('Pred strongly connected components',gt_components)
+                 
+                n_components_error = abs(pred_components-gt_components)
+                if (n_components_error) < best_components_error:
+                    print("Activation threshold set to ",thres)
+                    act_thres = thres
+                    best_components_error = n_components_error
         epoch_acc = np.mean(accuracies)
         if epoch_acc > best_acc:
             best_acc = epoch_acc
@@ -198,8 +227,12 @@ def train(model):
             epochs_no_improvement=0
         else:
             epochs_no_improvement+=1
-
+        train_log = open('train_log.txt','a')
+        train_log.write('\t* Epoch '+str(epoch) +' loss '+str(float(loss)) + ' val acc' + str(epoch_acc))
+        train_log.close()
         if epochs_no_improvement>patience:
+            print('Epochs no improvement',epochs_no_improvement)
+            print('Training finished')
             break
     return model
 
