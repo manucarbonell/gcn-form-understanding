@@ -13,6 +13,7 @@ Original file is located at
 
 import torch.utils.data as data
 import glob
+import time
 
 from random import randrange
 from dgl.nn.pytorch import GATConv, GraphConv
@@ -98,9 +99,9 @@ In our specific case, we need to deal with graphs of many sizes. Hence, we defin
 
 """## Define data loaders"""
 
-trainset = FUNSD('funsd_train','')
-validset = FUNSD('funsd_valid','')
-testset = FUNSD('funsd_test','')
+trainset = FUNSD('training_data/annotations','')
+validset = FUNSD('testing_data/annotations','')
+testset = FUNSD('testing_data/annotations','')
 
 train_loader = DataLoader(trainset, batch_size=1, shuffle=True,collate_fn=collate)
 valid_loader = DataLoader(validset, batch_size=1, collate_fn=collate)
@@ -136,7 +137,8 @@ def train(model):
     epoch_losses = []
     train_log = open('train_log.txt','w')
     train_log.close()
-    epoch_loss = 0
+    epoch_group_loss = 0
+    epoch_link_loss = 0
     best_acc =0
     best_components_error = 200
     patience = 100
@@ -144,42 +146,53 @@ def train(model):
     epochs_no_improvement=0
     for epoch in range(100):
         epoch_loss = 0
-        for iter, (bg, blab) in enumerate(train_loader):
-          
-            optimizer.zero_grad()
-            prediction = model(bg)
-            target_edges = blab[0]
-
-            # convert target edges dict from complete graph to input graph edges 0s and 1s
+        print("\n\n")
+        model.training=True
+        for iter, (bg, blab,elab) in enumerate(train_loader):
+            print('Epoch '+str(epoch)+' '+str(100*float(iter)/len(train_loader)),end="\r")    
+            #sys.stdout.flush()
             input_edges = torch.stack(bg.edges()).t().tolist()            
             edges = list(map(tuple, input_edges))
+            target_edges = blab[0]
             target = torch.tensor([target_edges[e] for e in edges])
+            
+            optimizer.zero_grad()
+            prediction,entity_link_score = model(bg,target)
+            # convert target edges dict from complete graph to input graph edges 0s and 1s
     
             # class weights
             class_weights = target.shape[0]*torch.ones(target.shape)
             class_weights[target.bool()] /= 2*target.sum()
             class_weights[(1-target).bool()] /= 2*(1-target).sum()
             
-            loss = F.binary_cross_entropy(prediction,target,weight=class_weights)
+            group_loss = F.binary_cross_entropy(prediction,target,weight=class_weights)
+            entity_link_targets = elab[0].float()
+            link_loss = F.binary_cross_entropy(entity_link_score,entity_link_targets)
 
+            loss=group_loss+link_loss
+            
             loss.backward()
             
-            epoch_loss+=float(loss)
-            
+            epoch_group_loss+=float(group_loss)
+            epoch_link_loss+=float(link_loss)
             optimizer.step()
 
             prediction[prediction>act_thresh] = 1
             prediction[prediction<=act_thresh] = 0
 
-        print('\t* Epoch '+str(epoch) +' loss '+str(float(epoch_loss)) + ' lr' + str(scheduler.get_lr()[0]))
+        print('\t* Epoch '+str(epoch) +' group loss '+str(float(epoch_group_loss))+' link loss'+str(float(epoch_link_loss)) + ' lr' + str(scheduler.get_lr()[0]))
         print("ACCURACY:",float((prediction == target).sum())/prediction.shape[0])
         print("PRECISION:", ((prediction == target)[target.bool()].float().sum()/prediction.sum()).item())
         print("RECALL:", ((prediction == target)[target.bool()].float().sum()/target.sum()).item())
         print(" Validation \n")
         accuracies = []
         scheduler.step()
-        for iter,(bg,blab) in enumerate(valid_loader):
-            activations = model(bg)
+        model.training=False
+        
+        # VALIDATION STEP 
+        
+        for iter,(bg,blab,elab) in enumerate(valid_loader):
+            activations,entity_links = model(bg)
             prediction=activations.clone()
             prediction[prediction>act_thresh] = 1
             prediction[prediction<=act_thresh] = 0
@@ -198,7 +211,7 @@ def train(model):
             # calculate predicted graph and target graph connected components
             n_components_error =200
 
-            for thres in np.linspace(0.1,0.9,20):
+            for thres in np.linspace(0.2,0.7,20):
                 prediction = activations.clone()
                 prediction[prediction>thres] = 1
                 prediction[prediction<=thres] = 0
@@ -239,6 +252,7 @@ def train(model):
 """# Main"""
 
 #def main():
+
 model = Net(102, 128)
 
 model = train(model)

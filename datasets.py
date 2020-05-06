@@ -1,3 +1,4 @@
+import json
 import torch.utils.data as data
 import glob
 
@@ -27,14 +28,15 @@ import fasttext
 
 from torch.optim.lr_scheduler import StepLR
 from torch.utils.data import DataLoader
-from utils import adjacency_to_pairs_and_labels
+from utils import *
+
 def collate(samples):
     # The input `samples` is a list of pairs
     #  (graph, label).
-    graphs, labels = map(list, zip(*samples))
+    graphs, group_labels,entity_labels = map(list, zip(*samples))
     batched_graph = dgl.batch(graphs)
     #labels = dgl.batch(labels)
-    return batched_graph, labels#torch.tensor(labels)
+    return batched_graph, group_labels,entity_labels#torch.tensor(labels)
 
 
 class FUNSD(data.Dataset):
@@ -46,7 +48,7 @@ class FUNSD(data.Dataset):
         self.file_list = file_list
 
         # List of files and corresponding labels
-        self.files =glob.glob(root_path+'/*.xml')
+        self.files =glob.glob(root_path+'/*.json')
                     #os.listdir(root_path)
         
         if not os.path.exists('embeddings.bin'):
@@ -57,21 +59,23 @@ class FUNSD(data.Dataset):
 
     def __getitem__(self, index):
         # Read the graph and label
-        G,target =self.pxml2graph(self.files[index])
+        G,target,entity_links =self.read_annotations(self.files[index])
 
         # Convert to DGL format
         node_label = torch.stack([torch.tensor(v['position']) for k,v in G.nodes.items()]).float()
         node_label = (node_label - node_label.mean(0))/ node_label.std(0)
 
         node_word = torch.stack([torch.tensor(v['w_embed']) for k,v in G.nodes.items()]).float()
+        node_entity = torch.stack([torch.tensor(v['entity']) for k,v in G.nodes.items()]).float()
         
         g_in = dgl.transform.knn_graph(node_label,10)
         g_in = dgl.to_bidirected(g_in)
 
         g_in.ndata['position'] =node_label.float()
         g_in.ndata['w_embed'] =node_word.float()
-
-        return g_in, target
+        g_in.ndata['entity'] = node_entity
+    
+        return g_in, target,entity_links
 
     def label2class(self, label):
         # Converts the numeric label to the corresponding string
@@ -81,84 +85,69 @@ class FUNSD(data.Dataset):
         # Subset length
         return len(self.files)
     
-    def pxml2graph(self,xml_file):
+    def read_annotations(self,json_file):
+        # Input: json file path with page ground truth
+        # Output:   - Graph to be given as input to the network
+        #           - Dictionary with target edge predictions over input graph
+        #           - List of entity links
+       
+        with open(json_file) as f:
+            data = json.load(f)
+        form_data = data['form']
         
-        def get_coords_and_transcript(pxml,textobject,key):
-            coords = pxml.getPoints(textobject)
-            if len(coords)==4: 
-                arg_max_coord=2
-            else:
-                arg_max_coord=1
-            x0=int(coords[0].x)
-            y0=int(coords[0].y)
-            
-            x1=int(coords[arg_max_coord].x)
-            y1=int(coords[arg_max_coord].y)
-
-            transcription = pxml.getTextEquiv(textobject)
-            tag = pxml.getPropertyValue(textobject,key=key)
-            transcription = transcription.lower()
-            transcription=re.sub('[0-9]','N',transcription)
-                    
-            return x0,y0,x1,y1,transcription,tag
-        # parse a pagexml file and return a dgl input graph and an edge target dictionary
-        pagexml.set_omnius_schema()
-        pxml = pagexml.PageXML()
-        pxml.loadXml(xml_file)
-        pages = pxml.select('_:Page')
-        node_id=[]
-        node_label={}
-        # Parse nodes (text boxes)
-        for page in pages:
-            pagenum = pxml.getPageNumber(page)
-            regions = pxml.select('_:TextRegion',page)
-            word_idx=0
-            for region in regions:
-                words=pxml.select('_:Word',region)
-                for Word in words :
-                    node_id.append(word_idx)
-                    data_f = open('text_data.txt','a')
-                    x0,y0,x1,y1,transcription,tag=get_coords_and_transcript(pxml,Word,'label')
-                    data_f.write(transcription+' ')
-                    data_f.close()
-                    node_label[word_idx] = np.array([x0, y0])
-                    word_idx+=1
-
-        # node adjacency matrix
-                            
-        am=np.ones((len(node_label),len(node_label)))
-
-        target_am=np.zeros((len(node_id),len(node_id)))
-        node_words = {}
+        node_position={}
+        node_text ={}
         node_shape = {}
-        # nodes corresponding words in same groups are connected:
-        for page in pages:
-            pagenum = pxml.getPageNumber(page)
-            regions = pxml.select('_:TextRegion',page)
-            word_idx=0
-            for region in regions:
-                words=pxml.select('_:Word',region)
-                first_region_word = word_idx
-                for Word in words :
-                    node_id.append(word_idx)
-                    x0,y0,x1,y1,transcription,tag=get_coords_and_transcript(pxml,Word,'label')
-                    node_label[word_idx] = np.array([x0, y0])
-                    node_words[word_idx] = self.embeddings[transcription] 
-                    node_shape[word_idx] = np.array([x1-x0,y1-y0])
-                    word_idx+=1
-                last_region_word = word_idx
+        node_entity = {}
+        word_idx=0
+        entity_idx = 0
+        entity_links=[]
+        entity_positions=[]
+        # Get total amount of words in the form and their attr to create am.
+        for entity in form_data:
+            for link in entity['linking']:
+                entity_links.append(link) 
+            for word in entity['words']:
+                node_position[word_idx]=word['box'][:2]
+                node_text[word_idx]=self.embeddings[word['text']]
+                node_entity[word_idx]=entity_idx
+                word_idx+=1
+            entity_positions.append(np.array(entity['box'][0:2]))
+            entity_idx+=1
+        entity_positions = torch.tensor(entity_positions)
+        entity_graph = dgl.transform.knn_graph(entity_positions,10)
+        entity_graph_edges = torch.t(torch.stack([entity_graph.edges()[0],entity_graph.edges()[1]]))
+        entity_link_labels = []
+        for edge in entity_graph_edges.tolist():
+            if edge in entity_links:
+                entity_link_labels.append(1)
+            else:
+                entity_link_labels.append(0)
+        entity_link_labels=torch.tensor(entity_link_labels)
 
-                target_am[first_region_word:last_region_word,first_region_word:last_region_word]=1
+        target_am = np.zeros((len(node_position),len(node_position)))
+        am=np.ones((len(node_position),len(node_position)))
+        word_idx=0
+        # Fill target am for word grouping
+        for entity in form_data:
+            first_region_word=word_idx
+            for word in entity['words']:
+                word_idx+=1
+            last_region_word = word_idx
 
+            target_am[first_region_word:last_region_word,first_region_word:last_region_word]=1
+        
+        
         G = nx.from_numpy_matrix(am)
-        nx.set_node_attributes(G, node_label, 'position')
-        nx.set_node_attributes(G, node_words, 'w_embed')
-        nx.set_node_attributes(G, node_shape, 'shape')
+        nx.set_node_attributes(G, node_position, 'position')
+        nx.set_node_attributes(G, node_text, 'w_embed')
+        nx.set_node_attributes(G, node_entity, 'entity')
+        #nx.set_node_attributes(G, node_shape, 'shape')
         
         pairs,labels= adjacency_to_pairs_and_labels(target_am)
         label_dict={}
         for k in range(len(pairs)):
             label_dict[pairs[k]]=labels[k]
-                
-        return G,label_dict
+        
+        return G,label_dict,entity_link_labels
 
