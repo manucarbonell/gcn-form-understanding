@@ -25,6 +25,7 @@ import re
 import torch 
 import dgl
 from torch.optim.lr_scheduler import StepLR
+from utils import *
 
 class Net(nn.Module):
     def __init__(self, in_dim, hidden_dim):
@@ -38,7 +39,9 @@ class Net(nn.Module):
         self.conv3 = GATConv(4*hidden_dim, hidden_dim, 4, residual=True)
 
         self.mlp = nn.Sequential(nn.Linear(hidden_dim, hidden_dim), nn.ReLU(True), nn.Linear(hidden_dim, 1), nn.Sigmoid())
-        self.score = nn.CosineSimilarity()
+        
+        self.mlp_entities = nn.Sequential(nn.Linear(hidden_dim, hidden_dim), nn.ReLU(True), nn.Linear(hidden_dim, 1), nn.Sigmoid())
+        self.training = True
 
     def get_complete_graph_and_pairs(self,num_nodes):
         G = nx.complete_graph(num_nodes)
@@ -62,7 +65,14 @@ class Net(nn.Module):
 
         return score
 
-    def forward(self, g):
+    def entity_link_score(self,pairs,entities):
+        s = entities[pairs[:,0]]
+        d = entities[pairs[:,1]]
+        score = self.mlp_entities((s-d).abs()).squeeze()
+        return score
+
+
+    def forward(self, g,target=None):
         # For undirected graphs, in_degree is the same as
         # out_degree.
         #h = g.ndata['position']
@@ -80,9 +90,46 @@ class Net(nn.Module):
 
         h = self.conv3(g,h)
         h = h.mean(1)
-        
         g.ndata['h'] = h
-        score = self.calc_score(g)
-        #hg = dgl.mean_nodes(g, 'h')
-        #return self.classify(hg)
-        return score
+        groups_score = self.calc_score(g)
+        
+        entity_states = []
+        entity_positions = []
+        if self.training: 
+            for entity in range(int(torch.max(g.ndata['entity']))+1):
+                entity_state = torch.sum(g.ndata['h'][g.ndata['entity']==entity],dim=0)
+                entity_states.append(entity_state)
+
+                entity_states.append(entity_state)
+                entity_position = torch.mean(g.ndata['position'][g.ndata['entity']==entity],dim=0)
+                entity_positions.append(entity_position)
+            entity_states = torch.stack(entity_states)
+            entity_positions = torch.stack(entity_positions)
+            
+            entity_graph = dgl.transform.knn_graph(entity_positions, 10)
+        else:
+            
+            pred_edges = torch.t(torch.stack([g.edges()[0][groups_score>0.5],g.edges()[1][groups_score>0.5]]))
+            predg = edges_list_to_dgl_graph(pred_edges)
+            predg.ndata['position']=g.ndata['position']
+        
+            components = nx.connected_components(predg.to_networkx().to_undirected())
+       
+            entity_states=[]
+            for component in components:
+                component_node_indices = [node for node in component]
+                entity_states.append(torch.sum(g.ndata['h'][component_node_indices],dim=0))
+                
+                entity_position = torch.mean(g.ndata['position'][component_node_indices],dim=0)
+                entity_positions.append(entity_position)
+        
+            entity_states = torch.stack(entity_states)
+            entity_positions = torch.stack(entity_positions)
+            k = min(entity_positions.shape[0],10)
+            entity_graph = dgl.transform.knn_graph(entity_positions, k)
+        
+        #_,entity_pairs = self.get_complete_graph_and_pairs(len(entity_states))
+        entity_pairs = torch.t(torch.stack([entity_graph.edges()[0],entity_graph.edges()[1]]))
+
+        entity_link_score = self.entity_link_score(entity_pairs,entity_states)
+        return groups_score,entity_link_score
