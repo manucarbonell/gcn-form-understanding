@@ -137,8 +137,6 @@ def train(model):
     epoch_losses = []
     train_log = open('train_log.txt','w')
     train_log.close()
-    epoch_group_loss = 0
-    epoch_link_loss = 0
     best_acc =0
     best_components_error = 200
     patience = 100
@@ -146,6 +144,8 @@ def train(model):
     epochs_no_improvement=0
     for epoch in range(100):
         epoch_loss = 0
+        epoch_group_loss = 0
+        epoch_link_loss = 0
         print("\n\n")
         model.training=True
         for iter, (bg, blab,elab) in enumerate(train_loader):
@@ -233,6 +233,9 @@ def train(model):
                     act_thres = thres
                     best_components_error = n_components_error
         epoch_acc = np.mean(accuracies)
+        
+        train_log.write('\t Epoch '+str(epoch) +' loss '+str(float(loss)) + ' val acc' + str(epoch_acc)+'\n')
+        
         if epoch_acc > best_acc:
             best_acc = epoch_acc
             print('new best acc',epoch_acc)
@@ -240,9 +243,6 @@ def train(model):
             epochs_no_improvement=0
         else:
             epochs_no_improvement+=1
-        train_log = open('train_log.txt','a')
-        train_log.write('\t* Epoch '+str(epoch) +' loss '+str(float(loss)) + ' val acc' + str(epoch_acc))
-        train_log.close()
         if epochs_no_improvement>patience:
             print('Epochs no improvement',epochs_no_improvement)
             print('Training finished')
