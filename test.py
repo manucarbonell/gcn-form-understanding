@@ -33,16 +33,19 @@ from torch.utils.data import DataLoader
 from model import Net
 from datasets import FUNSD,collate
 
-testset = FUNSD('funsd_test','')
+testset = FUNSD('testing_data/annotations','')
 test_loader = DataLoader(testset, batch_size=1, collate_fn=collate)
 model = torch.load('model.pt')
 recalls = []
 precisions =[]
 print ("Validation on test set")
 aris = []
-for iter,(bg,blab) in enumerate(test_loader):
+
+def test_grouping(bg,blab,model):
     print(float(iter)/len(test_loader),'\r\r')
-    prediction = model(bg)
+    pdb.set_trace()
+    prediction_groups,prediction_links = model(bg)
+    prediction = prediction_groups
     prediction[prediction>0.8] = 1
     prediction[prediction<=0.8] = 0
     
@@ -56,8 +59,6 @@ for iter,(bg,blab) in enumerate(test_loader):
     rec = float(((prediction == target)[target.bool()].float().sum()/target.sum()).item())
     prec = float(((prediction == target)[prediction.bool()].float().sum()/prediction.sum()).item())
 
-    recalls.append(rec)
-    precisions.append(prec)
 
     # GT AND PRED COMPONENTS
 
@@ -89,10 +90,23 @@ for iter,(bg,blab) in enumerate(test_loader):
         cluster_idx+=1
     
     ari = sklearn.metrics.adjusted_rand_score(gt_node_labels,pred_node_labels)
+
+
+    return prec,rec,ari
+
+
+
+for iter,(bg,blab,elab) in enumerate(test_loader):
+    precision,recall,ari = test_grouping(bg,blab,model)
+    recalls.append(recall)
+    precisions.append(precision)
     aris.append(ari)
 
 epoch_prec = np.mean(precisions)
 epoch_rec = np.mean(recalls)
+
+ari = np.mean(aris)
+
 print('Precision, recall:',epoch_prec,epoch_rec)
 
 print('F1',2*(epoch_prec*epoch_rec)/(epoch_prec+epoch_rec))
