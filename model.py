@@ -38,10 +38,13 @@ class Net(nn.Module):
         self.conv2 = GATConv(4*hidden_dim, hidden_dim, 4, residual=True, activation=F.relu)
         self.conv3 = GATConv(4*hidden_dim, hidden_dim, 4, residual=True)
 
-        self.mlp = nn.Sequential(nn.Linear(hidden_dim, hidden_dim), nn.ReLU(True), nn.Linear(hidden_dim, 1), nn.Sigmoid())
+        self.w_group_mlp = nn.Sequential(nn.Linear(hidden_dim, hidden_dim), nn.ReLU(True), nn.Linear(hidden_dim, 1), nn.Sigmoid())
         self.entity_linear = nn.Linear(hidden_dim,hidden_dim)
-        self.mlp_entities = nn.Sequential(nn.Linear(hidden_dim, hidden_dim), nn.ReLU(True), nn.Linear(hidden_dim, 1), nn.Sigmoid())
+        self.entity_link_mlp = nn.Sequential(nn.Linear(hidden_dim, hidden_dim), nn.ReLU(True), nn.Linear(hidden_dim, 1), nn.Sigmoid())
         self.training = True
+        self.entity_classify =nn.Sequential(nn.Linear(hidden_dim,4),nn.Sigmoid())
+
+
 
     def get_complete_graph_and_pairs(self,num_nodes):
         G = nx.complete_graph(num_nodes)
@@ -59,7 +62,7 @@ class Net(nn.Module):
         d = g.ndata['h'][g.edges()[1]]
         #s = g.ndata['h'][pairs[:,0]]
         #d = g.ndata['h'][pairs[:,1]]
-        score = self.mlp((s-d).abs()).squeeze()
+        score = self.w_group_mlp((s-d).abs()).squeeze()
         #score = F.sigmoid(torch.bmm(s.unsqueeze(1),d.unsqueeze(2)).squeeze())
         #score = self.score(s,d)
 
@@ -68,7 +71,7 @@ class Net(nn.Module):
     def entity_link_score(self,pairs,entities):
         s = entities[pairs[:,0]]
         d = entities[pairs[:,1]]
-        score = self.mlp_entities((s-d).abs()).squeeze()
+        score = self.entity_link_mlp((s-d).abs()).squeeze()
         return score
 
 
@@ -134,4 +137,7 @@ class Net(nn.Module):
         entity_pairs = torch.t(torch.stack([entity_graph.edges()[0],entity_graph.edges()[1]]))
 
         entity_link_score = self.entity_link_score(entity_pairs,entity_states)
-        return groups_score,entity_link_score
+        
+        entity_class = self.entity_classify(entity_states)
+
+        return groups_score,entity_class,entity_link_score
