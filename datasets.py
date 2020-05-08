@@ -30,13 +30,15 @@ from torch.optim.lr_scheduler import StepLR
 from torch.utils.data import DataLoader
 from utils import *
 
+
+
 def collate(samples):
     # The input `samples` is a list of pairs
     #  (graph, label).
-    graphs, group_labels,entity_labels = map(list, zip(*samples))
+    graphs, group_labels,entity_labels,entity_links = map(list, zip(*samples))
     batched_graph = dgl.batch(graphs)
     #labels = dgl.batch(labels)
-    return batched_graph, group_labels,entity_labels#torch.tensor(labels)
+    return batched_graph, group_labels,entity_labels,entity_links#torch.tensor(labels)
 
 
 class FUNSD(data.Dataset):
@@ -51,6 +53,7 @@ class FUNSD(data.Dataset):
         self.files =glob.glob(root_path+'/*.json')
                     #os.listdir(root_path)
         
+        self.unique_labels = ['question','answer','header','other']
         if not os.path.exists('embeddings.bin'):
             self.embeddings = fasttext.train_unsupervised('text_data.txt', model='skipgram')
             self.embeddings.save_model("embeddings.bin")
@@ -59,7 +62,7 @@ class FUNSD(data.Dataset):
 
     def __getitem__(self, index):
         # Read the graph and label
-        G,target,entity_links =self.read_annotations(self.files[index])
+        G,target,entity_labels,entity_links =self.read_annotations(self.files[index])
 
         # Convert to DGL format
         node_label = torch.stack([torch.tensor(v['position']) for k,v in G.nodes.items()]).float()
@@ -75,11 +78,15 @@ class FUNSD(data.Dataset):
         g_in.ndata['w_embed'] =node_word.float()
         g_in.ndata['entity'] = node_entity
     
-        return g_in, target,entity_links
+        return g_in, target,entity_labels,entity_links
 
     def label2class(self, label):
         # Converts the numeric label to the corresponding string
         return self.unique_labels[label]
+
+    def class2label(self,c):
+        label = self.unique_labels.index(c)
+        return label
 
     def __len__(self):
         # Subset length
@@ -103,6 +110,7 @@ class FUNSD(data.Dataset):
         entity_idx = 0
         entity_links=[]
         entity_positions=[]
+        entity_labels = []
         # Get total amount of words in the form and their attr to create am.
         for entity in form_data:
             for link in entity['linking']:
@@ -113,8 +121,10 @@ class FUNSD(data.Dataset):
                 node_entity[word_idx]=entity_idx
                 word_idx+=1
             entity_positions.append(np.array(entity['box'][0:2]))
+            entity_labels.append((self.class2label(entity['label'])))
             entity_idx+=1
         entity_positions = torch.tensor(entity_positions)
+        entity_labels = torch.tensor(entity_labels)
         entity_graph = dgl.transform.knn_graph(entity_positions,10)
         entity_graph_edges = torch.t(torch.stack([entity_graph.edges()[0],entity_graph.edges()[1]]))
         entity_link_labels = []
@@ -149,5 +159,5 @@ class FUNSD(data.Dataset):
         for k in range(len(pairs)):
             label_dict[pairs[k]]=labels[k]
         
-        return G,label_dict,entity_link_labels
+        return G,label_dict,entity_labels,entity_link_labels
 
