@@ -39,7 +39,7 @@ class Net(nn.Module):
         self.conv3 = GATConv(4*hidden_dim, hidden_dim, 4, residual=True)
 
         self.mlp = nn.Sequential(nn.Linear(hidden_dim, hidden_dim), nn.ReLU(True), nn.Linear(hidden_dim, 1), nn.Sigmoid())
-        
+        self.entity_linear = nn.Linear(hidden_dim,hidden_dim)
         self.mlp_entities = nn.Sequential(nn.Linear(hidden_dim, hidden_dim), nn.ReLU(True), nn.Linear(hidden_dim, 1), nn.Sigmoid())
         self.training = True
 
@@ -97,8 +97,8 @@ class Net(nn.Module):
         entity_positions = []
         if self.training: 
             for entity in range(int(torch.max(g.ndata['entity']))+1):
-                entity_state = torch.sum(g.ndata['h'][g.ndata['entity']==entity],dim=0)
-                entity_states.append(entity_state)
+                entity_node_states = g.ndata['h'][g.ndata['entity']==entity]
+                entity_state = self.entity_linear(torch.sum(entity_node_states,dim=0))
 
                 entity_states.append(entity_state)
                 entity_position = torch.mean(g.ndata['position'][g.ndata['entity']==entity],dim=0)
@@ -118,7 +118,9 @@ class Net(nn.Module):
             entity_states=[]
             for component in components:
                 component_node_indices = [node for node in component]
-                entity_states.append(torch.sum(g.ndata['h'][component_node_indices],dim=0))
+                entity_node_states= g.ndata['h'][component_node_indices]
+                entity_state = self.entity_linear(torch.sum(entity_node_states,dim=0))
+                entity_states.append(entity_state)
                 
                 entity_position = torch.mean(g.ndata['position'][component_node_indices],dim=0)
                 entity_positions.append(entity_position)
