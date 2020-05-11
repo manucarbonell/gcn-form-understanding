@@ -32,6 +32,7 @@ from torch.utils.data import DataLoader
 
 from model import Net
 from datasets import FUNSD,collate
+from evaluate import *
 
 testset = FUNSD('testing_data/annotations','')
 test_loader = DataLoader(testset, batch_size=1, collate_fn=collate)
@@ -40,76 +41,26 @@ recalls = []
 precisions =[]
 print ("Validation on test set")
 aris = []
+labeling_f1 = []
+for iter, (input_graph, group_labels,entity_labels,link_labels) in enumerate(test_loader):
+    group_prediction,entity_class,entity_position,entity_link_score = model(input_graph,group_labels)
 
-def test_grouping(bg,blab,model):
-    print(float(iter)/len(test_loader),'\r\r')
-    pdb.set_trace()
-    prediction_groups,prediction_links = model(bg)
-    prediction = prediction_groups
-    prediction[prediction>0.8] = 1
-    prediction[prediction<=0.8] = 0
-    
-    target_edges = blab[0]
+    group_prediction[group_prediction>model.thres]=1.
+    precision,recall,ari = test_grouping(input_graph,group_prediction,group_labels[0])
 
-    # convert target edges dict from complete graph to input graph edges 0s and 1s
-    input_edges = torch.stack(bg.edges()).t().tolist()            
-    edges = list(map(tuple, input_edges))
-    target = torch.tensor([target_edges[e] for e in edges])
-
-    rec = float(((prediction == target)[target.bool()].float().sum()/target.sum()).item())
-    prec = float(((prediction == target)[prediction.bool()].float().sum()/prediction.sum()).item())
-
-
-    # GT AND PRED COMPONENTS
-
-    pred_edges = torch.t(torch.stack([bg.edges()[0][prediction.bool()],bg.edges()[1][prediction.bool()]]))
-    predg = edges_list_to_dgl_graph(pred_edges)
-    predg.ndata['position']=bg.ndata['position']
-    
-    pred_components = nx.connected_components(predg.to_networkx().to_undirected())
-    
-    target_edges = torch.t(torch.stack([bg.edges()[0][target.bool()],bg.edges()[1][target.bool()]]))
-    yg = edges_list_to_dgl_graph(target_edges)
-    yg.ndata['position']=bg.ndata['position']
-    
-    gt_components = nx.connected_components(yg.to_networkx().to_undirected())
-    cluster_idx=0
-    pred_node_labels=np.zeros(bg.number_of_nodes())
-    all_nodes = []
-    for node_cluster in pred_components:
-        for node in node_cluster:
-            all_nodes.append(node)
-            pred_node_labels[node]=cluster_idx
-        cluster_idx+=1
-    cluster_idx=0
-    gt_node_labels=np.zeros(bg.number_of_nodes())
-
-    for node_cluster in gt_components:
-        for node in node_cluster:
-            gt_node_labels[node]=cluster_idx
-        cluster_idx+=1
-    
-    ari = sklearn.metrics.adjusted_rand_score(gt_node_labels,pred_node_labels)
-
-
-    return prec,rec,ari
-
-
-
-for iter,(bg,blab,elab) in enumerate(test_loader):
-    precision,recall,ari = test_grouping(bg,blab,model)
+    label_prec,label_rec =test_labeling(input_graph,entity_class,entity_position,entity_labels)
     recalls.append(recall)
     precisions.append(precision)
     aris.append(ari)
+
+    labeling_f1.append(2*(label_prec*label_rec)/(label_prec+label_rec))
 
 epoch_prec = np.mean(precisions)
 epoch_rec = np.mean(recalls)
 
 ari = np.mean(aris)
 
-print('Precision, recall:',epoch_prec,epoch_rec)
-
-print('F1',2*(epoch_prec*epoch_rec)/(epoch_prec+epoch_rec))
-
+print('Grouping precision, recall & F1:',epoch_prec,epoch_rec,2*(epoch_prec*epoch_rec)/(epoch_prec+epoch_rec))
 
 print('ARI',np.mean(aris))
+print('Labeling F1',np.mean(labeling_f1))
