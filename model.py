@@ -42,6 +42,7 @@ class Net(nn.Module):
         self.entity_linear = nn.Linear(hidden_dim,hidden_dim)
         self.entity_link_mlp = nn.Sequential(nn.Linear(hidden_dim, hidden_dim), nn.ReLU(True), nn.Linear(hidden_dim, 1), nn.Sigmoid())
         self.training = True
+        self.thresh = 0.5
         self.entity_classify =nn.Sequential(nn.Linear(hidden_dim,4),nn.Sigmoid())
 
 
@@ -139,5 +140,4 @@ class Net(nn.Module):
         entity_link_score = self.entity_link_score(entity_pairs,entity_states)
         
         entity_class = self.entity_classify(entity_states)
-
-        return groups_score,entity_class,entity_link_score
+        return groups_score,entity_class,entity_positions,entity_link_score
