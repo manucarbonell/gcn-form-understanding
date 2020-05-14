@@ -33,7 +33,6 @@ from model import Net
 from datasets import FUNSD,collate
 
 def test_grouping(bg,prediction,target):
-
     rec = float(((prediction == target)[target.bool()].float().sum()/target.sum()).item())
     prec = float(((prediction == target)[prediction.bool()].float().sum()/prediction.sum()).item())
 
@@ -66,36 +65,51 @@ def test_grouping(bg,prediction,target):
         for node in node_cluster:
             gt_node_labels[node]=cluster_idx
         cluster_idx+=1
-    
     ari = sklearn.metrics.adjusted_rand_score(gt_node_labels,pred_node_labels)
 
 
     return prec,rec,ari
 
 
+def test_linking(link_scores,link_labels,threshold=0.5):
+    link_labels = link_labels[0]
+    link_scores[link_scores>threshold]=1
+    link_scores[link_scores<threshold]=0
+    if link_scores.sum()>0:
+        precision  = (link_scores[link_labels==1]).sum()/link_scores.sum()
+    else:
+        precision = 0
+    if link_labels.sum()>0:
+
+        recall  = (link_scores[link_labels==1]).sum()/link_labels.sum()
+    else:
+        recall= 0
+    return float(precision), float(recall)
 
 def test_labeling(input_graph,entity_class,entity_position,entity_labels):
     entity_labels = entity_labels[0]
     pred_classes = torch.argmax(entity_class,dim=1)
-    distance_threshold = 5.
+    distance_threshold = 0.25
     number_of_classes  =int(entity_labels[:,0].max())+1
     precisions={}
     recalls={}
     for category in range(number_of_classes):
         true_positives=0.
+        predictions = 0
         pred_entity_indices = torch.where(pred_classes == category)[0]
         gt_entity_indices = torch.where(entity_labels[:,0]==category)[0]
         if pred_entity_indices.numel()<1 or gt_entity_indices.numel()<1: continue
         for gt_idx in gt_entity_indices:
             for pred_idx in pred_entity_indices:
+                predictions+=1
                 if torch.norm(entity_position[pred_idx,:]-entity_labels[gt_idx,1:])<distance_threshold:
                     true_positives+=1
 
+    
                     break
-        precisions[category]=true_positives/max(int((pred_classes==category).sum()),1e-10)
+        precisions[category]=true_positives/max(predictions,1e-10)
         recalls[category]=true_positives/max(int((entity_labels[:,0]==category).sum()),1e-10)
 
 
     precision,recall= np.mean([p for p in precisions.values()]),np.mean([r for r in recalls.values()])
-    
     return precision,recall
