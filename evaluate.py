@@ -89,7 +89,6 @@ def test_linking(link_scores,link_labels,threshold=0.5):
     return float(precision), float(recall)
 
 def test_labeling(entity_class,entity_labels,threshold=0.5):
-    pdb.set_trace()
     labels = entity_labels[0][:,0]
     entity_class = torch.argmax(entity_class,dim=-1)
     true_positives = float((entity_class==labels).sum())
