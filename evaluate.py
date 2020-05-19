@@ -32,7 +32,9 @@ from torch.utils.data import DataLoader
 from model import Net
 from datasets import FUNSD,collate
 
-def test_grouping(bg,prediction,target):
+def test_grouping(bg,prediction,target,thres=0.5):
+    prediction[prediction>thres]=1
+    prediction[prediction<thres]=0
     rec = float(((prediction == target)[target.bool()].float().sum()/target.sum()).item())
     prec = float(((prediction == target)[prediction.bool()].float().sum()/prediction.sum()).item())
 
@@ -86,30 +88,12 @@ def test_linking(link_scores,link_labels,threshold=0.5):
         recall= 0
     return float(precision), float(recall)
 
-def test_labeling(input_graph,entity_class,entity_position,entity_labels):
-    entity_labels = entity_labels[0]
-    pred_classes = torch.argmax(entity_class,dim=1)
-    distance_threshold = 0.25
-    number_of_classes  =int(entity_labels[:,0].max())+1
-    precisions={}
-    recalls={}
-    for category in range(number_of_classes):
-        true_positives=0.
-        predictions = 0
-        pred_entity_indices = torch.where(pred_classes == category)[0]
-        gt_entity_indices = torch.where(entity_labels[:,0]==category)[0]
-        if pred_entity_indices.numel()<1 or gt_entity_indices.numel()<1: continue
-        for gt_idx in gt_entity_indices:
-            for pred_idx in pred_entity_indices:
-                predictions+=1
-                if torch.norm(entity_position[pred_idx,:]-entity_labels[gt_idx,1:])<distance_threshold:
-                    true_positives+=1
-
+def test_labeling(entity_class,entity_labels,threshold=0.5):
+    pdb.set_trace()
+    labels = entity_labels[0][:,0]
+    entity_class = torch.argmax(entity_class,dim=-1)
+    true_positives = float((entity_class==labels).sum())
     
-                    break
-        precisions[category]=true_positives/max(predictions,1e-10)
-        recalls[category]=true_positives/max(int((entity_labels[:,0]==category).sum()),1e-10)
-
-
-    precision,recall= np.mean([p for p in precisions.values()]),np.mean([r for r in recalls.values()])
-    return precision,recall
+    total = int(labels.numel())
+    acc =(true_positives/total)
+    return acc,acc
