@@ -40,10 +40,10 @@ import dgl
 from torch.optim.lr_scheduler import StepLR
 from torch.utils.data import DataLoader
 from utils import *
-
+from evaluate import *
 from model import Net
 from datasets import FUNSD,collate
-
+from test import *
 
 
 """## Get ground truth"""
@@ -99,9 +99,12 @@ In our specific case, we need to deal with graphs of many sizes. Hence, we defin
 
 """## Define data loaders"""
 
-trainset = FUNSD('training_data/annotations','')
-validset = FUNSD('testing_data/annotations','')
-testset = FUNSD('testing_data/annotations','')
+train_dir='training_data/annotations'
+test_dir='testing_data/annotations'
+
+trainset = FUNSD(train_dir,'')
+validset = FUNSD(test_dir,'')
+testset = FUNSD(test_dir,'')
 
 train_loader = DataLoader(trainset, batch_size=1, shuffle=True,collate_fn=collate)
 valid_loader = DataLoader(validset, batch_size=1, collate_fn=collate)
@@ -128,6 +131,7 @@ def train(model):
 
     epoch_losses = []
     train_log = open('train_log.txt','w')
+    train_log.close()
     best_acc =0
     best_components_error = 200
     patience = 100
@@ -141,32 +145,38 @@ def train(model):
         model.training=True
         for iter, (input_graph, group_labels,entity_labels,link_labels) in enumerate(train_loader):
             group_labels = group_labels[0]
-            print('Epoch '+str(epoch)+' '+str(100*float(iter)/len(train_loader)),end="\r")    
+            progress = 100*float(iter)/len(train_loader)
+            progress = float("{:.2f}".format(progress))
+            print('Epoch '+str(epoch)+' '+str(progress)+'%',end="\r")    
             #sys.stdout.flush()
-            
+            # Get predictions
             optimizer.zero_grad()
             prediction,entity_class,entity_position,entity_link_score = model(input_graph,group_labels)
             # convert target edges dict from complete graph to input graph edges 0s and 1s
     
-            # class weights
+            # Group loss
             class_weights = group_labels.shape[0]*torch.ones(group_labels.shape)
             class_weights[group_labels.bool()] /= 2*group_labels.sum()
             class_weights[(1-group_labels).bool()] /= 2*(1-group_labels).sum()
-            
             group_loss = F.binary_cross_entropy(prediction,group_labels,weight=class_weights)
-            entity_link_targets = link_labels[0].float()
-            link_loss = F.binary_cross_entropy(entity_link_score,entity_link_targets)
+            
+            # Entity link loss
+            entity_link_labels = link_labels[0].float()
+            class_weights = entity_link_labels.shape[0]*torch.ones(entity_link_labels.shape)
+            class_weights[entity_link_labels.bool()] /= 2*entity_link_labels.sum()
+            class_weights[(1-entity_link_labels).bool()] /= 2*(1-entity_link_labels).sum()
+            link_loss = F.binary_cross_entropy(entity_link_score,entity_link_labels,weight=class_weights)
+           
+            # Entity classification
             entity_position_labels = entity_labels[0][:,1:]
-            entity_class_labels = entity_labels[0][:,0]
+            entity_class_labels = entity_labels[0][:,0].long()
             indices = entity_class_labels.view(-1,1)
             one_hot=torch.zeros(entity_class_labels.shape[0], 4)
             entity_class_labels=one_hot.scatter(1, indices, 1)
 
             labeling_loss = F.binary_cross_entropy(entity_class,entity_class_labels)
 
-
-            loss=group_loss+link_loss+labeling_loss
-            
+            loss=link_loss+labeling_loss+group_loss 
             loss.backward()
            
 
@@ -179,60 +189,23 @@ def train(model):
             prediction[prediction<=model.thresh] = 0
 
         print('\t* Epoch '+str(epoch) +' group loss '+str(float(epoch_group_loss))+' link loss '+str(float(epoch_link_loss)) +' labeling loss '+str(float(epoch_labeling_loss)) +' lr' + str(scheduler.get_lr()[0]))
-        print("ACCURACY:",float((prediction == group_labels).sum())/prediction.shape[0])
-        print("PRECISION:", ((prediction == group_labels)[group_labels.bool()].float().sum()/prediction.sum()).item())
-        print("RECALL:", ((prediction == group_labels)[group_labels.bool()].float().sum()/group_labels.sum()).item())
         print(" Validation \n")
         accuracies = []
         scheduler.step()
         model.training=False
         
-        # VALIDATION STEP 
-        
-        for iter,(input_graph,group_labels,entity_labels,link_labels) in enumerate(valid_loader):
-            group_labels = group_labels[0]
-            
-            activations,entity_class,entity_position,entity_links = model(input_graph)
-            prediction=activations.clone()
-            prediction[prediction>model.thresh] = 1
-            prediction[prediction<=model.thresh] = 0
-            
-            precision= ((prediction == group_labels)[group_labels.bool()].float().sum()/prediction.sum()).item()
-            recall = ((prediction == group_labels)[group_labels.bool()].float().sum()/group_labels.sum()).item()
-            f1 =2*( precision*recall)/(precision+recall)
-            accuracies.append(f1)
-
-            # calculate predicted graph and target graph connected components
-            n_components_error =200
-
-            for thres in np.linspace(0.2,0.7,20):
-                prediction = activations.clone()
-                prediction[prediction>thres] = 1
-                prediction[prediction<=thres] = 0
-                
-                pred_edges = torch.t(torch.stack([input_graph.edges()[0][prediction.bool()],input_graph.edges()[1][prediction.bool()]]))
-                if pred_edges.shape[0]<=0: continue
-                predg = edges_list_to_dgl_graph(pred_edges)
-                pred_components=nx.number_strongly_connected_components(predg.to_networkx())
-                #print('Pred strongly connected components',pred_components)
-                
-                target_edges = torch.t(torch.stack([input_graph.edges()[0][group_labels.bool()],input_graph.edges()[1][group_labels.bool()]]))
-                yg = edges_list_to_dgl_graph(target_edges)
-                gt_components=nx.number_strongly_connected_components(yg.to_networkx())
-                #print('Pred strongly connected components',gt_components)
-                 
-                n_components_error = abs(pred_components-gt_components)
-                if (n_components_error) < best_components_error:
-                    print("Activation threshold set to ",thres)
-                    model.thres = thres
-                    best_components_error = n_components_error
-        epoch_acc = np.mean(accuracies)
-        
+        # VALIDATION STEP
+        labeling_f1,linking_f1 = test(test_dir,model)
+        epoch_acc = labeling_f1*linking_f1
+        ### END VAL
+        train_log = open('train_log.txt','a')
         train_log.write('\t Epoch '+str(epoch) +' loss '+str(float(loss)) + ' val acc' + str(epoch_acc)+'\n')
-        
+        train_log.close()
+
+
         if epoch_acc > best_acc:
             best_acc = epoch_acc
-            print('new best acc',epoch_acc)
+            print('new best score',epoch_acc)
             torch.save(model,'model.pt')
             epochs_no_improvement=0
         else:
