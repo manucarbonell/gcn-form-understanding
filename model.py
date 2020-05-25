@@ -77,10 +77,11 @@ class Net(nn.Module):
 
 
     def forward(self, g,target=None):
+        pdb.set_trace()
         # For undirected graphs, in_degree is the same as
         # out_degree.
-        #h = g.ndata['position']
-        h = torch.cat([g.ndata['position'],g.ndata['w_embed']],dim=1)
+        h = g.ndata['position']
+        #h = torch.cat([g.ndata['position'],g.ndata['w_embed']],dim=1)
         if torch.cuda.is_available():
           h = h.cuda() 
         #h = F.relu(self.conv1(g, h))
@@ -99,7 +100,7 @@ class Net(nn.Module):
         
         entity_states = []
         entity_positions = []
-        if self.training: 
+        '''if self.training: 
             for entity in range(int(torch.max(g.ndata['entity']))+1):
                 entity_node_states = g.ndata['h'][g.ndata['entity']==entity]
                 entity_state = self.entity_linear(torch.sum(entity_node_states,dim=0))
@@ -139,5 +140,5 @@ class Net(nn.Module):
 
         entity_link_score = self.entity_link_score(entity_pairs,entity_states)
         
-        entity_class = self.entity_classify(entity_states)
-        return groups_score,entity_class,entity_positions,entity_link_score
+        entity_class = self.entity_classify(entity_states)'''
+        return groups_score#,entity_class,entity_positions,entity_link_score

@@ -35,10 +35,11 @@ from utils import *
 def collate(samples):
     # The input `samples` is a list of pairs
     #  (graph, label).
-    graphs, group_labels,entity_labels,entity_links = map(list, zip(*samples))
+    graphs,entity_links = map(list, zip(*samples))
     batched_graph = dgl.batch(graphs)
     #labels = dgl.batch(labels)
-    return batched_graph, group_labels,entity_labels,entity_links#torch.tensor(labels)
+    return batched_graph,entity_links#torch.tensor(labels)
+    #return batched_graph, group_labels,entity_labels,entity_links#torch.tensor(labels)
 
 
 class FUNSD(data.Dataset):
@@ -62,31 +63,23 @@ class FUNSD(data.Dataset):
 
     def __getitem__(self, index):
         # Read the graph and label
-        G,group_labels,entity_labels,entity_links =self.read_annotations(self.files[index])
+        G,entity_links =self.read_annotations(self.files[index])
+        #G,group_labels,entity_labels,entity_links =self.read_annotations(self.files[index])
 
         # Convert to DGL format
-        node_label = torch.stack([torch.tensor(v['position']) for k,v in G.nodes.items()]).float()
-        node_label = (node_label - node_label.mean(0))/ node_label.std(0)
-
-        node_word = torch.stack([torch.tensor(v['w_embed']) for k,v in G.nodes.items()]).float()
-        node_entity = torch.stack([torch.tensor(v['entity']) for k,v in G.nodes.items()]).float()
+        #node_label = torch.stack([torch.tensor(v['position']) for k,v in G.nodes.items()]).float()
+        
+        #node_word = torch.stack([torch.tensor(v['w_embed']) for k,v in G.nodes.items()]).float()
+        #node_entity = torch.stack([torch.tensor(v['entity']) for k,v in G.nodes.items()]).float()
         # ENSURE BIDIRECTED
-        g_in = dgl.transform.knn_graph(node_label,10)
-        g_in = dgl.to_bidirected(g_in)
+        g_in=G
+        #g_in = dgl.to_bidirected(G)
 
-        g_in.ndata['position'] =node_label.float()
-        g_in.ndata['w_embed'] =node_word.float()
-        g_in.ndata['entity'] = node_entity
+        #g_in.ndata['w_embed'] =node_word.float()
+        #g_in.ndata['entity'] = node_entity
    
-
-
-        input_edges = torch.stack(g_in.edges()).t().tolist()            
-        edges = list(map(tuple, input_edges))
-        target_edges = group_labels
-        group_labels = torch.tensor([target_edges[e] for e in edges])
-
-
-        return g_in,group_labels,entity_labels,entity_links
+        return g_in,entity_links
+        #return g_in,group_labels,entity_labels,entity_links
 
     def label2class(self, label):
         # Converts the numeric label to the corresponding string
@@ -119,25 +112,44 @@ class FUNSD(data.Dataset):
         entity_links=[]
         entity_positions=[]
         entity_labels = []
+        entity_embeddings =[]
         # Get total amount of words in the form and their attr to create am.
         for entity in form_data:
             for link in entity['linking']:
-                entity_links.append(link) 
+                if [link[1],link[0]] not in entity_links and link not in entity_links:
+                    entity_links.append(link) 
             for word in entity['words']:
                 node_position[word_idx]=word['box'][:2]
                 node_text[word_idx]=self.embeddings[word['text']]
                 node_entity[word_idx]=entity_idx
                 word_idx+=1
-            entity_position = np.array([word['box'][:2] for word in entity['words']]).mean(axis=0)
+            entity_embeddings.append(self.embeddings[entity['text']])
+            #entity_position = np.array([word['box'][:2] for word in entity['words']]).mean(axis=0)
+            entity_position = np.array(entity['box'][:2])
             entity_positions.append(entity_position)
             entity_labels.append((self.class2label(entity['label'])))
             entity_idx+=1
+        
+        #print('Entities in form',len(form_data))
+        #print('Links in form',len(entity_links))
+        
+        entity_embeddings = torch.tensor(entity_embeddings)
         entity_positions = torch.tensor(entity_positions)
         entity_positions = ( (entity_positions.float() - entity_positions.float().mean(0))/ entity_positions.float().std(0))
         entity_labels = torch.tensor(entity_labels)
         entity_labels=torch.cat([entity_labels.view([-1,1]).float(),entity_positions],dim=1)
-        entity_graph = dgl.transform.knn_graph(entity_positions,10)
+        
+        k = min(100,int(entity_positions.shape[0]))
+        #entity_graph = dgl.transform.knn_graph(entity_positions,k)
+        entity_graph_nx = nx.complete_graph(len(form_data))
+        entity_graph = dgl.DGLGraph()
+        entity_graph.from_networkx(entity_graph_nx)
+        entity_graph = dgl.to_bidirected(entity_graph)
         entity_graph_edges = torch.t(torch.stack([entity_graph.edges()[0],entity_graph.edges()[1]]))
+        
+        entity_graph.ndata['position']=entity_positions
+        entity_graph.ndata['w_embed']=entity_embeddings
+
         entity_link_labels = []
         for edge in entity_graph_edges.tolist():
             if edge in entity_links:
@@ -145,7 +157,6 @@ class FUNSD(data.Dataset):
             else:
                 entity_link_labels.append(0)
         entity_link_labels=torch.tensor(entity_link_labels)
-
         target_am = np.zeros((len(node_position),len(node_position)))
         am=np.ones((len(node_position),len(node_position)))
         word_idx=0
@@ -170,5 +181,6 @@ class FUNSD(data.Dataset):
         for k in range(len(pairs)):
             label_dict[pairs[k]]=labels[k]
         
-        return G,label_dict,entity_labels,entity_link_labels
+        return entity_graph,entity_link_labels
+        #return G,label_dict,entity_labels,entity_link_labels
 

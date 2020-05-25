@@ -32,7 +32,7 @@ from torch.utils.data import DataLoader
 from model import Net
 from datasets import FUNSD,collate
 
-def test_grouping(bg,prediction,target,thres=0.5):
+def test_grouping(bg,prediction,target,thres=0.4):
     prediction[prediction>thres]=1
     prediction[prediction<thres]=0
     rec = float(((prediction == target)[target.bool()].float().sum()/target.sum()).item())
