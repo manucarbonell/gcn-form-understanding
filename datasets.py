@@ -98,7 +98,13 @@ class FUNSD(data.Dataset):
         # Output:   - Graph to be given as input to the network
         #           - Dictionary with target edge predictions over input graph
         #           - List of entity links
-       
+        form_id = json_file.split('/')[-1].split('.')[0]
+        print(form_id)
+        partition = json_file.split('/')[-3]
+        image_file = os.path.join(partition,'images',form_id+'.png')
+        im = plt.imread(image_file)
+        
+        image_h,image_w= im.shape
         with open(json_file) as f:
             data = json.load(f)
         form_data = data['form']
@@ -109,33 +115,48 @@ class FUNSD(data.Dataset):
         node_entity = {}
         word_idx=0
         entity_idx = 0
+        entity_shapes = []
         entity_links=[]
         entity_positions=[]
         entity_labels = []
         entity_embeddings =[]
         # Get total amount of words in the form and their attr to create am.
+        pdb.set_trace()
         for entity in form_data:
             for link in entity['linking']:
-                if [link[1],link[0]] not in entity_links and link not in entity_links:
+                if link not in entity_links and [link[1],link[0]] not in entity_links:
                     entity_links.append(link) 
             for word in entity['words']:
                 node_position[word_idx]=word['box'][:2]
                 node_text[word_idx]=self.embeddings[word['text']]
                 node_entity[word_idx]=entity_idx
                 word_idx+=1
+            
             entity_embeddings.append(self.embeddings[entity['text']])
-            #entity_position = np.array([word['box'][:2] for word in entity['words']]).mean(axis=0)
+            
             entity_position = np.array(entity['box'][:2])
             entity_positions.append(entity_position)
+           
+            entity_shape  = np.array([entity['box'][2] - entity['box'][0],entity['box'][3] - entity['box'][1]])
+            entity_shapes.append(entity_shape)
+
             entity_labels.append((self.class2label(entity['label'])))
+            
             entity_idx+=1
         
-        #print('Entities in form',len(form_data))
-        #print('Links in form',len(entity_links))
-        
         entity_embeddings = torch.tensor(entity_embeddings)
-        entity_positions = torch.tensor(entity_positions)
-        entity_positions = ( (entity_positions.float() - entity_positions.float().mean(0))/ entity_positions.float().std(0))
+        entity_positions = torch.tensor(entity_positions).float()
+        entity_shapes = torch.tensor(entity_shapes).float()
+        #entity_positions = ( (entity_positions.float() - entity_positions.float().mean(0))/ entity_positions.float().std(0))
+        #normalize positions with respect to page
+        entity_positions.float()
+        entity_positions[:,1]=entity_positions[:,1]/float(image_h)
+        entity_positions[:,0]=entity_positions[:,0]/float(image_w)
+        entity_positions-=0.5
+
+        entity_shapes[:,1]=entity_shapes[:,1]/float(image_h)
+        entity_shapes[:,0]=entity_shapes[:,0]/float(image_w)
+        
         entity_labels = torch.tensor(entity_labels)
         entity_labels=torch.cat([entity_labels.view([-1,1]).float(),entity_positions],dim=1)
         
@@ -149,14 +170,16 @@ class FUNSD(data.Dataset):
         
         entity_graph.ndata['position']=entity_positions
         entity_graph.ndata['w_embed']=entity_embeddings
+        entity_graph.ndata['shape']=entity_shapes
 
         entity_link_labels = []
         for edge in entity_graph_edges.tolist():
-            if edge in entity_links:
+            if edge in entity_links or [edge[1],edge[0]] in entity_links:
                 entity_link_labels.append(1)
             else:
                 entity_link_labels.append(0)
         entity_link_labels=torch.tensor(entity_link_labels)
+        
         target_am = np.zeros((len(node_position),len(node_position)))
         am=np.ones((len(node_position),len(node_position)))
         word_idx=0
