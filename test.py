@@ -42,25 +42,30 @@ def test(test_data_dir,model):
     aris = []
     labeling_f1 = []
     linking_f1 = []
+    precisions=[]
+    recalls=[]
     for iter, (input_graph, link_labels) in enumerate(test_loader):
         print('Testing... ',100*float(iter)/len(test_loader),'%',end='\r')
         entity_link_score = model(input_graph)
 
         link_prec,link_rec= test_linking(entity_link_score,link_labels,threshold= float(entity_link_score.mean()))
-
+        print ("prec ",link_prec," recall",link_rec)
         if (link_prec>0 and link_rec>0):
             linking_f1.append(2*(link_prec*link_rec)/(link_prec+link_rec))
+            precisions.append(link_prec)
+            recalls.append(link_rec)
         else:
             linking_f1.append(0)
 
     print('Linking F1',np.mean(linking_f1))
-    
+    print('Precision',np.mean(precisions))
+    print('Recall',np.mean(recalls))
     linking_f1 = np.mean(linking_f1)
     return  linking_f1 
 def main():
     model = torch.load('model.pt')
 
-    test_data_dir = 'training_data/annotations'
+    test_data_dir = 'testing_data/annotations'
     linking_f1 = test(test_data_dir,model)
 
 
