@@ -102,7 +102,7 @@ In our specific case, we need to deal with graphs of many sizes. Hence, we defin
 train_dir='training_data/annotations'
 
 ########################################################################  OVERFIT DEBUGG!!
-test_dir='training_data/annotations'
+test_dir='testing_data/annotations'
 
 trainset = FUNSD(train_dir,'')
 validset = FUNSD(test_dir,'')
@@ -138,16 +138,14 @@ def train(model):
     best_components_error = 200
     patience = 100
     epochs_no_improvement=0
-    #for epoch in range(100):
-    for iter, (input_graph,link_labels) in enumerate(train_loader):
+    for epoch in range(500):
         epoch_loss = 0
         epoch_labeling_loss=0
         epoch_group_loss = 0
         epoch_link_loss = 0
         print("\n\n")
         model.training=True
-        #for iter, (input_graph,link_labels) in enumerate(train_loader):
-        for epoch in range(200):
+        for iter, (input_graph,link_labels) in enumerate(train_loader):
             #for iter, (input_graph, group_labels,entity_labels,link_labels) in enumerate(train_loader):
             progress = 100*float(iter)/len(train_loader)
             progress = float("{:.2f}".format(progress))
@@ -183,7 +181,6 @@ def train(model):
             labeling_loss = F.binary_cross_entropy(entity_class,entity_class_labels)
             '''
             loss=link_loss#+labeling_loss+group_loss 
-            print('link loss',loss)
             loss.backward()
             entity_link_score[entity_link_score>0.5]=1.
             entity_link_score[entity_link_score<=0.5]=0.
@@ -197,11 +194,9 @@ def train(model):
 
             #prediction[prediction>model.thresh] = 1
             #prediction[prediction<=model.thresh] = 0
-            
-            print("RECALL",(entity_link_score[entity_link_labels==1].sum()/entity_link_labels.sum()))
-            if epoch>100: pdb.set_trace() 
-            print("PRECISION",(entity_link_score[entity_link_labels==1].sum()/entity_link_score.sum()))
-        break
+            #print("RECALL",(entity_link_score[entity_link_labels==1].sum()/entity_link_labels.sum()))
+            #if epoch>100: pdb.set_trace() 
+            #print("PRECISION",(entity_link_score[entity_link_labels==1].sum()/entity_link_score.sum()))
         print('\t* Epoch '+str(epoch) +' group loss '+str(float(epoch_group_loss))+' link loss '+str(float(epoch_link_loss)) +' labeling loss '+str(float(epoch_labeling_loss)) +' lr' + str(scheduler.get_lr()[0]))
         print(" Validation \n")
         accuracies = []
@@ -235,7 +230,7 @@ def train(model):
 
 #def main():
 
-model = Net(2, 128)
+model = Net(104, 128)
 
 model = train(model)
 
