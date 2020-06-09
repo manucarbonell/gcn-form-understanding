@@ -99,7 +99,6 @@ class FUNSD(data.Dataset):
         #           - Dictionary with target edge predictions over input graph
         #           - List of entity links
         form_id = json_file.split('/')[-1].split('.')[0]
-        print(form_id)
         partition = json_file.split('/')[-3]
         image_file = os.path.join(partition,'images',form_id+'.png')
         im = plt.imread(image_file)
@@ -121,7 +120,6 @@ class FUNSD(data.Dataset):
         entity_labels = []
         entity_embeddings =[]
         # Get total amount of words in the form and their attr to create am.
-        pdb.set_trace()
         for entity in form_data:
             for link in entity['linking']:
                 if link not in entity_links and [link[1],link[0]] not in entity_links:
