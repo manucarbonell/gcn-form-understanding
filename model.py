@@ -56,7 +56,7 @@ class Net(nn.Module):
         return g,pairs
 
     def calc_score(self,g):
-        #pairs = torch.t(torch.stack([g.edges()[0],g.edges()[1]]))
+        pairs = torch.t(torch.stack([g.edges()[0],g.edges()[1]]))
 
         # get hidden state of all source destination pairs and calculate their edge score
         s = g.ndata['h'][g.edges()[0]]
@@ -77,11 +77,10 @@ class Net(nn.Module):
 
 
     def forward(self, g,target=None):
-        pdb.set_trace()
         # For undirected graphs, in_degree is the same as
         # out_degree.
-        h = g.ndata['position']
-        #h = torch.cat([g.ndata['position'],g.ndata['w_embed']],dim=1)
+        #h = g.ndata['position']
+        h = torch.cat([g.ndata['position'],g.ndata['shape'],g.ndata['w_embed']],dim=1)
         if torch.cuda.is_available():
           h = h.cuda() 
         #h = F.relu(self.conv1(g, h))
@@ -100,45 +99,4 @@ class Net(nn.Module):
         
         entity_states = []
         entity_positions = []
-        '''if self.training: 
-            for entity in range(int(torch.max(g.ndata['entity']))+1):
-                entity_node_states = g.ndata['h'][g.ndata['entity']==entity]
-                entity_state = self.entity_linear(torch.sum(entity_node_states,dim=0))
-
-                entity_states.append(entity_state)
-                entity_position = torch.mean(g.ndata['position'][g.ndata['entity']==entity],dim=0)
-                entity_positions.append(entity_position)
-            entity_states = torch.stack(entity_states)
-            entity_positions = torch.stack(entity_positions)
-            
-            entity_graph = dgl.transform.knn_graph(entity_positions, 10)
-        else:
-            
-            pred_edges = torch.t(torch.stack([g.edges()[0][groups_score>0.5],g.edges()[1][groups_score>0.5]]))
-            predg = edges_list_to_dgl_graph(pred_edges)
-            predg.ndata['position']=g.ndata['position']
-        
-            components = nx.connected_components(predg.to_networkx().to_undirected())
-       
-            entity_states=[]
-            for component in components:
-                component_node_indices = [node for node in component]
-                entity_node_states= g.ndata['h'][component_node_indices]
-                entity_state = self.entity_linear(torch.sum(entity_node_states,dim=0))
-                entity_states.append(entity_state)
-                
-                entity_position = torch.mean(g.ndata['position'][component_node_indices],dim=0)
-                entity_positions.append(entity_position)
-        
-            entity_states = torch.stack(entity_states)
-            entity_positions = torch.stack(entity_positions)
-            k = min(entity_positions.shape[0],10)
-            entity_graph = dgl.transform.knn_graph(entity_positions, k)
-        
-        #_,entity_pairs = self.get_complete_graph_and_pairs(len(entity_states))
-        entity_pairs = torch.t(torch.stack([entity_graph.edges()[0],entity_graph.edges()[1]]))
-
-        entity_link_score = self.entity_link_score(entity_pairs,entity_states)
-        
-        entity_class = self.entity_classify(entity_states)'''
         return groups_score#,entity_class,entity_positions,entity_link_score
