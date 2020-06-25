@@ -4,6 +4,7 @@ import dgl
 import numpy as np
 import networkx as nx
 import matplotlib.pyplot as plt
+import matplotlib.image as mpimg
 from sklearn.cluster import KMeans
 
 def adjacency_to_pairs_and_labels(am):
@@ -16,12 +17,19 @@ def adjacency_to_pairs_and_labels(am):
 
     return pairs,labels
     
-def visualize_graph(g,im_path):
+def visualize_graph(g,scale_x = 1.,scale_y=1. ,im_out_path='',bkg_im_path = '',edge_color='g'):
     position = np.array(g.ndata['position'])
+    
+    position+=0.5
+
+    position[:,1] *= scale_y  
+    position[:,0] *= scale_x 
     g = g.to_networkx()
-    nx.draw_networkx(g, pos=position, arrows=False,node_size=100,with_labels=False)
-    #plt.savefig(im_path)
-    plt.show()
+    nx.draw_networkx(g, pos=position, arrows=False,node_size=10,with_labels=True,edge_color = edge_color,font_size=5)
+    
+    if len(im_out_path)>0:
+        plt.savefig(im_out_path,dpi=300)
+    #plt.show()
 
 def edges_list_to_dgl_graph(edges,num_nodes=0):
     if num_nodes>0:
