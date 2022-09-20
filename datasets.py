@@ -20,7 +20,6 @@ import numpy as np
 import xml.etree.ElementTree as ET
 import networkx as nx
 import pdb
-import pagexml
 import re
 import torch 
 import dgl
@@ -59,8 +58,8 @@ class FUNSD(data.Dataset):
             self.embeddings = fasttext.train_unsupervised('text_data.txt', model='skipgram')
             self.embeddings.save_model("embeddings.bin")
         else:
+      
             self.embeddings =fasttext.load_model("embeddings.bin")
-
     def __getitem__(self, index):
         # Read the graph and label
         G,entity_links =self.read_annotations(self.files[index])
@@ -100,7 +99,7 @@ class FUNSD(data.Dataset):
         #           - List of entity links
         form_id = json_file.split('/')[-1].split('.')[0]
         partition = json_file.split('/')[-3]
-        image_file = os.path.join(partition,'images',form_id+'.png')
+        image_file = os.path.join('dataset',partition,'images',form_id+'.png')
         im = plt.imread(image_file)
         
         image_h,image_w= im.shape
@@ -162,7 +161,8 @@ class FUNSD(data.Dataset):
         #entity_graph = dgl.transform.knn_graph(entity_positions,k)
         entity_graph_nx = nx.complete_graph(len(form_data))
         entity_graph = dgl.DGLGraph()
-        entity_graph.from_networkx(entity_graph_nx)
+        entity_graph = dgl.from_networkx(entity_graph_nx)
+        
         entity_graph = dgl.to_bidirected(entity_graph)
         entity_graph_edges = torch.t(torch.stack([entity_graph.edges()[0],entity_graph.edges()[1]]))
         

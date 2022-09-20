@@ -23,7 +23,6 @@ import xml.etree.ElementTree as ET
 import networkx as nx
 import pdb
 """## Import libraries"""
-import pagexml
 import re
 import torch 
 import dgl
@@ -45,6 +44,8 @@ def test(test_data_dir,model):
     precisions=[]
     recalls=[]
     for iter, (input_graph, link_labels) in enumerate(test_loader):
+        if torch.cuda.is_available():
+            input_graph = input_graph.to(torch.device('cuda:0'))
         print('Testing... ',100*float(iter)/len(test_loader),'%',end='\r')
         entity_link_score = model(input_graph)
 

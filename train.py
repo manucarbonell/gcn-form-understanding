@@ -33,7 +33,6 @@ import numpy as np
 import xml.etree.ElementTree as ET
 import networkx as nx
 import pdb
-import pagexml
 import re
 import torch 
 import dgl
@@ -47,11 +46,10 @@ from test import *
 
 
 """## Get ground truth"""
-if not os.path.exists('funsd.tar.gz'):
-    os.system('wget --no-check-certificate '+ "'https://docs.google.com/uc?export=download&id=1Y8UQe4-2uLti_YbnyZbwSWpUnC6kUZVj'"+' -O funsd.tar.gz')
-    os.system('tar -zxvf funsd.tar.gz')
-
-"""## Auxiliary functions"""
+if not os.path.exists('dataset.zip'):
+    dataset_url = 'https://guillaumejaume.github.io/FUNSD/dataset.zip'
+    os.system('wget --no-check-certificate '+ dataset_url)
+    os.system('unzip dataset.zip')
 
 
 
@@ -99,10 +97,11 @@ In our specific case, we need to deal with graphs of many sizes. Hence, we defin
 
 """## Define data loaders"""
 
-train_dir='training_data/annotations'
+train_dir='dataset/training_data/annotations'
 
 ########################################################################  OVERFIT DEBUGG!!
-test_dir='testing_data/annotations'
+test_dir='dataset/testing_data/annotations'
+
 
 trainset = FUNSD(train_dir,'')
 validset = FUNSD(test_dir,'')
@@ -146,6 +145,10 @@ def train(model):
         print("\n\n")
         model.training=True
         for iter, (input_graph,link_labels) in enumerate(train_loader):
+            
+            if torch.cuda.is_available():
+                input_graph = input_graph.to(torch.device('cuda:0'))
+
             #for iter, (input_graph, group_labels,entity_labels,link_labels) in enumerate(train_loader):
             progress = 100*float(iter)/len(train_loader)
             progress = float("{:.2f}".format(progress))
@@ -169,6 +172,11 @@ def train(model):
             class_weights = entity_link_labels.shape[0]*torch.ones(entity_link_labels.shape)
             class_weights[entity_link_labels.bool()] /= 2*entity_link_labels.sum()
             class_weights[(1-entity_link_labels).bool()] /= 2*(1-entity_link_labels).sum()
+            
+            if torch.cuda.is_available():
+                class_weights = class_weights.to(torch.device('cuda:0'))
+                entity_link_labels = entity_link_labels.to(torch.device('cuda:0'))
+ 
             link_loss = F.binary_cross_entropy(entity_link_score,entity_link_labels,weight=class_weights)
             '''
             # Entity classification
